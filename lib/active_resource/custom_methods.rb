@@ -55,28 +55,28 @@ module ActiveResource
         # <tt>:from</tt> option. For example:
         #
         #   Person.find(:all, :from => :active)
-        def get(custom_method_name, options = {})
-          hashified = format.decode(connection.get(custom_method_collection_url(custom_method_name, options), headers).body)
+        def get(custom_method_name, options = {}, instance_headers = {})
+          hashified = format.decode(connection.get(custom_method_collection_url(custom_method_name, options), custom_headers(instance_headers)).body)
           derooted  = Formats.remove_root(hashified)
           derooted.is_a?(Array) ? derooted.map { |e| Formats.remove_root(e) } : derooted
         end
 
-        def post(custom_method_name, options = {}, body = "")
-          connection.post(custom_method_collection_url(custom_method_name, options), body, headers)
+        def post(custom_method_name, options = {}, body = "", instance_headers = {})
+          connection.post(custom_method_collection_url(custom_method_name, options), body, custom_headers(instance_headers))
         end
 
-        def patch(custom_method_name, options = {}, body = "")
-          connection.patch(custom_method_collection_url(custom_method_name, options), body, headers)
+        def patch(custom_method_name, options = {}, body = "", instance_headers = {})
+          connection.patch(custom_method_collection_url(custom_method_name, options), body, custom_headers(instance_headers))
         end
 
-        def put(custom_method_name, options = {}, body = "")
-          connection.put(custom_method_collection_url(custom_method_name, options), body, headers)
+        def put(custom_method_name, options = {}, body = "", instance_headers = {})
+          connection.put(custom_method_collection_url(custom_method_name, options), body, custom_headers(instance_headers))
         end
 
-        def delete(custom_method_name, options = {})
+        def delete(custom_method_name, options = {}, instance_headers = {})
           # Need to jump through some hoops to retain the original class 'delete' method
           if custom_method_name.is_a?(Symbol)
-            connection.delete(custom_method_collection_url(custom_method_name, options), headers)
+            connection.delete(custom_method_collection_url(custom_method_name, options), custom_headers(instance_headers))
           else
             orig_delete(custom_method_name, options)
           end
@@ -91,29 +91,29 @@ module ActiveResource
       end
     end
 
-    def get(method_name, options = {})
-      self.class.format.decode(connection.get(custom_method_element_url(method_name, options), self.class.headers).body)
+    def get(method_name, options = {}, instance_headers = {})
+      self.class.format.decode(connection.get(custom_method_element_url(method_name, options), self.class.custom_headers(instance_headers)).body)
     end
 
-    def post(method_name, options = {}, body = nil)
+    def post(method_name, options = {}, body = nil, instance_headers = {})
       request_body = body.blank? ? encode : body
       if new?
-        connection.post(custom_method_new_element_url(method_name, options), request_body, self.class.headers)
+        connection.post(custom_method_new_element_url(method_name, options), request_body, self.class.custom_headers(instance_headers))
       else
-        connection.post(custom_method_element_url(method_name, options), request_body, self.class.headers)
+        connection.post(custom_method_element_url(method_name, options), request_body, self.class.custom_headers(instance_headers))
       end
     end
 
-    def patch(method_name, options = {}, body = "")
-      connection.patch(custom_method_element_url(method_name, options), body, self.class.headers)
+    def patch(method_name, options = {}, body = "", instance_headers = {})
+      connection.patch(custom_method_element_url(method_name, options), body, self.class.custom_headers(instance_headers))
     end
 
-    def put(method_name, options = {}, body = "")
-      connection.put(custom_method_element_url(method_name, options), body, self.class.headers)
+    def put(method_name, options = {}, body = "", instance_headers = {})
+      connection.put(custom_method_element_url(method_name, options), body, self.class.custom_headers(instance_headers))
     end
 
-    def delete(method_name, options = {})
-      connection.delete(custom_method_element_url(method_name, options), self.class.headers)
+    def delete(method_name, options = {}, instance_headers = {})
+      connection.delete(custom_method_element_url(method_name, options), self.class.custom_headers(instance_headers))
     end
 
 
