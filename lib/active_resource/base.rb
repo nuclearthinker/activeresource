@@ -703,6 +703,10 @@ module ActiveResource
         end
       end
 
+      def custom_headers(instance_headers = {})
+        instance_headers.to_h.empty? ? headers : instance_headers.to_h
+      end
+
       attr_writer :element_name
 
       def element_name
@@ -896,9 +900,9 @@ module ActiveResource
       #
       # Returns the new resource instance.
       #
-      def build(attributes = {})
-        attrs = self.format.decode(connection.get("#{new_element_path(attributes)}", headers).body).merge(attributes)
-        self.new(attrs)
+      def build(attributes = {}, instance_headers = {})
+        attrs = self.format.decode(connection.get("#{new_element_path(attributes)}", custom_headers(instance_headers)).body).merge(attributes)
+        self.new(attrs, false, instance_headers)
       end
 
       # Creates a new resource instance and makes a request to the remote service
@@ -925,8 +929,8 @@ module ActiveResource
       #   that_guy = Person.create(:name => '', :email => 'thatguy@nospam.com', :enabled => true)
       #   that_guy.valid? # => false
       #   that_guy.new?   # => true
-      def create(attributes = {})
-        self.new(attributes).tap { |resource| resource.save }
+      def create(attributes = {}, instance_headers = {})
+        self.new(attributes, false, instance_headers).tap { |resource| resource.save }
       end
 
       # Creates a new resource (just like <tt>create</tt>) and makes a request to the
@@ -936,8 +940,8 @@ module ActiveResource
       #
       #   ryan = Person.new(:first => 'ryan')
       #   ryan.save!
-      def create!(attributes = {})
-        self.new(attributes).tap { |resource| resource.save! }
+      def create!(attributes = {}, instance_headers = {})
+        self.new(attributes, false, instance_headers).tap { |resource| resource.save! }
       end
 
       # Core method for finding resources. Used similarly to Active Record's +find+ method.
@@ -1001,21 +1005,22 @@ module ActiveResource
       #   # => nil
       def find(*arguments)
         scope   = arguments.slice!(0)
-        options = arguments.slice!(0) || {}
+        options = (arguments.slice!(0) || {}).dup
+        instance_headers = options.delete(:instance_headers)
 
         case scope
         when :all
-          find_every(options)
+          find_every(options, instance_headers)
         when :first
-          collection = find_every(options)
+          collection = find_every(options, instance_headers)
           collection && collection.first
         when :last
-          collection = find_every(options)
+          collection = find_every(options, instance_headers)
           collection && collection.last
         when :one
-          find_one(options)
+          find_one(options, instance_headers)
         else
-          find_single(scope, options)
+          find_single(scope, options, instance_headers)
         end
       end
 
@@ -1040,9 +1045,9 @@ module ActiveResource
         find(:all, *args)
       end
 
-      def where(clauses = {})
+      def where(clauses = {}, instance_headers = {})
         raise ArgumentError, "expected a clauses Hash, got #{clauses.inspect}" unless clauses.is_a? Hash
-        find(:all, params: clauses)
+        find(:all, params: clauses, instance_headers: instance_headers)
       end
 
 
@@ -1060,8 +1065,8 @@ module ActiveResource
       #
       #   # Let's assume a request to events/5/cancel.json
       #   Event.delete(params[:id]) # sends DELETE /events/5
-      def delete(id, options = {})
-        connection.delete(element_path(id, options), headers)
+      def delete(id, options = {}, instance_headers = {})
+        connection.delete(element_path(id, options), custom_headers(instance_headers))
       end
 
       # Asserts the existence of a resource, returning <tt>true</tt> if the resource is found.
@@ -1071,12 +1076,12 @@ module ActiveResource
       #   Note.exists?(1) # => true
       #
       #   Note.exists(1349) # => false
-      def exists?(id, options = {})
+      def exists?(id, options = {}, instance_headers = {})
         return false unless id
 
         prefix_options, query_options = split_options(options[:params])
         path = element_path(id, prefix_options, query_options)
-        response = connection.head(path, headers)
+        response = connection.head(path, custom_headers(instance_headers))
 
         (200..206).include?(response.code.to_i)
       rescue ActiveResource::ResourceNotFound, ActiveResource::ResourceGone
@@ -1092,7 +1097,7 @@ module ActiveResource
         end
 
         # Find every resource
-        def find_every(options)
+        def find_every(options, instance_headers = {})
           params = options[:params]
           prefix_options, query_options = split_options(params)
 
@@ -1102,13 +1107,13 @@ module ActiveResource
               get(from, params)
             when String
               path = "#{from}#{query_string(query_options)}"
-              format.decode(connection.get(path, headers).body)
+              format.decode(connection.get(path, custom_headers(instance_headers)).body)
             else
               path = collection_path(prefix_options, query_options)
-              format.decode(connection.get(path, headers).body)
+              format.decode(connection.get(path, custom_headers(instance_headers)).body)
             end
 
-          instantiate_collection(response || [], query_options, prefix_options)
+          instantiate_collection(response || [], query_options, prefix_options, instance_headers)
         rescue ActiveResource::ResourceNotFound
           # Swallowing ResourceNotFound exceptions and return nil - as per
           # ActiveRecord.
@@ -1116,32 +1121,32 @@ module ActiveResource
         end
 
         # Find a single resource from a one-off URL
-        def find_one(options)
+        def find_one(options, instance_headers = {})
           case from = options[:from]
           when Symbol
-            instantiate_record(get(from, options[:params]))
+            instantiate_record(get(from, options[:params], instance_headers), {}, instance_headers)
           when String
             path = "#{from}#{query_string(options[:params])}"
-            instantiate_record(format.decode(connection.get(path, headers).body))
+            instantiate_record(format.decode(connection.get(path, custom_headers(instance_headers)).body), {}, instance_headers)
           end
         end
 
         # Find a single resource from the default URL
-        def find_single(scope, options)
+        def find_single(scope, options, instance_headers = {})
           prefix_options, query_options = split_options(options[:params])
           path = element_path(scope, prefix_options, query_options)
-          instantiate_record(format.decode(connection.get(path, headers).body), prefix_options)
+          instantiate_record(format.decode(connection.get(path, custom_headers(instance_headers)).body), prefix_options, instance_headers)
         end
 
-        def instantiate_collection(collection, original_params = {}, prefix_options = {})
+        def instantiate_collection(collection, original_params = {}, prefix_options = {}, instance_headers = {})
           collection_parser.new(collection).tap do |parser|
             parser.resource_class  = self
             parser.original_params = original_params
-          end.collect! { |record| instantiate_record(record, prefix_options) }
+          end.collect! { |record| instantiate_record(record, prefix_options, instance_headers) }
         end
 
-        def instantiate_record(record, prefix_options = {})
-          new(record, true).tap do |resource|
+        def instantiate_record(record, prefix_options = {}, instance_headers = {})
+          new(record, true, instance_headers).tap do |resource|
             resource.prefix_options = prefix_options
           end
         end
@@ -1210,10 +1215,11 @@ module ActiveResource
     #
     #   my_other_course = Course.new(:name => "Philosophy: Reason and Being", :lecturer => "Ralph Cling")
     #   my_other_course.save
-    def initialize(attributes = {}, persisted = false)
+    def initialize(attributes = {}, persisted = false, instance_headers = {})
       @attributes     = {}.with_indifferent_access
       @prefix_options = {}
       @persisted = persisted
+      @instance_headers = instance_headers
       load(attributes, false, persisted)
     end
 
@@ -1364,7 +1370,7 @@ module ActiveResource
     #   my_company.save # sends PUT /companies/1 (update)
     def save
       run_callbacks :save do
-        new? ? create : update
+        new? ? create(instance_headers: @instance_headers) : update(instance_headers: @instance_headers)
       end
     end
 
@@ -1397,9 +1403,9 @@ module ActiveResource
     #   new_id = new_person.id # => 7
     #   new_person.destroy
     #   Person.find(new_id) # 404 (Resource Not Found)
-    def destroy
+    def destroy(instance_headers: {})
       run_callbacks :destroy do
-        connection.delete(element_path, self.class.headers)
+        connection.delete(element_path, self.class.custom_headers(instance_headers))
       end
     end
 
@@ -1576,18 +1582,18 @@ module ActiveResource
       end
 
       # Update the resource on the remote service.
-      def update
+      def update(instance_headers: {})
         run_callbacks :update do
-          connection.put(element_path(prefix_options), encode, self.class.headers).tap do |response|
+          connection.put(element_path(prefix_options), encode, self.class.custom_headers(instance_headers)).tap do |response|
             load_attributes_from_response(response)
           end
         end
       end
 
       # Create (i.e., \save to the remote service) the \new resource.
-      def create
+      def create(instance_headers: {})
         run_callbacks :create do
-          connection.post(collection_path, encode, self.class.headers).tap do |response|
+          connection.post(collection_path, encode, self.class.custom_headers(instance_headers)).tap do |response|
             self.id = id_from_response(response)
             load_attributes_from_response(response)
           end
